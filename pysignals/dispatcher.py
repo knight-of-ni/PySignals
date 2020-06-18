@@ -1,5 +1,6 @@
 import weakref
 import threading
+import sys, os.path
 
 from pysignals import saferef
 
@@ -39,8 +40,9 @@ class Signal(object):
             providing_args = []
         self.providing_args = set(providing_args)
         self.lock = threading.Lock()
+        self.receiver_paths = []
 
-    def connect(self, receiver, sender=None, weak=True, dispatch_uid=None):
+    def connect(self, receiver, sender=None, weak=True, dispatch_uid=None, unique=True):
         """
         Connect receiver to sender for signal.
     
@@ -74,6 +76,10 @@ class Signal(object):
                 An identifier used to uniquely identify a particular instance of
                 a receiver. This will usually be a string, though it may be
                 anything hashable.
+            
+            unique
+                If True, connect() will ignore duplicate connections for the same
+                receiver (based on an intelligent guess at module uniqueness).
         """
         # If debug is on, check that we got a good receiver
         if pysignals_debug:
@@ -95,6 +101,20 @@ class Signal(object):
             if argspec:
                 assert argspec[2] is not None, \
                     "Signal receivers must accept keyword arguments (**kwargs)."
+        
+        # make sure this signal is only registered once by the same delegate
+        # the delegate's module is matched with an extension-insensitive
+        # search of the module.
+        receiver_module_file = os.path.abspath( sys.modules[receiver.__module__].__file__ )
+        if receiver_module_file.endswith( '.pyc' ):
+            receiver_module_file = receiver_module_file[:-1] # .pyc -> .py
+        
+        receiver_path = receiver_module_file + ':' + receiver.__name__
+        
+        if unique and receiver_path in self.receiver_paths:
+            return None
+        
+        self.receiver_paths.append( receiver_path )
         
         if dispatch_uid:
             lookup_key = (dispatch_uid, _make_id(sender))
